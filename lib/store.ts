@@ -14,7 +14,10 @@ async function findConfigBlobUrl(): Promise<string | null> {
 export async function getConfig(): Promise<GatewayConfig> {
   const url = await findConfigBlobUrl();
   if (!url) return structuredClone(emptyConfig);
-  const res = await fetch(url, { cache: "no-store" });
+  // Vercel Blob's public URLs sit behind a CDN edge that can briefly serve a
+  // stale copy after a write. A cache-busting query param forces a fresh hit.
+  const bustedUrl = `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;
+  const res = await fetch(bustedUrl, { cache: "no-store" });
   if (!res.ok) return structuredClone(emptyConfig);
   const data = (await res.json()) as Partial<GatewayConfig>;
   return {

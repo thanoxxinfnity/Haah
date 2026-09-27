@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Card, Input } from "@/components/ui";
+import Link from "next/link";
+import { Badge, Button, Card, Input } from "@/components/ui";
 
 type Endpoint = {
   id: string;
@@ -11,8 +12,11 @@ type Endpoint = {
   createdAt: number;
 };
 
+type ModelCount = { total: number; enabled: number };
+
 export default function EndpointsPage() {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
+  const [modelCounts, setModelCounts] = useState<Record<string, ModelCount>>({});
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ name: "", baseUrl: "", apiKey: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -22,8 +26,19 @@ export default function EndpointsPage() {
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/admin/endpoints").then((r) => r.json());
-    setEndpoints(res.endpoints ?? []);
+    const [epRes, modRes] = await Promise.all([
+      fetch("/api/admin/endpoints").then((r) => r.json()),
+      fetch("/api/admin/models").then((r) => r.json()),
+    ]);
+    setEndpoints(epRes.endpoints ?? []);
+    const counts: Record<string, ModelCount> = {};
+    for (const m of modRes.models ?? []) {
+      const c = counts[m.endpointId] ?? { total: 0, enabled: 0 };
+      c.total += 1;
+      if (m.enabled) c.enabled += 1;
+      counts[m.endpointId] = c;
+    }
+    setModelCounts(counts);
     setLoading(false);
   }
 
@@ -64,7 +79,12 @@ export default function EndpointsPage() {
       setStatus((s) => ({ ...s, [id]: data.error ?? "Sync failed" }));
       return;
     }
-    setStatus((s) => ({ ...s, [id]: `Found ${data.fetched} models, added ${data.added} new.` }));
+    const msg =
+      data.added > 0
+        ? `✓ Synced — ${data.added} new model${data.added === 1 ? "" : "s"} added (${data.fetched} available total). Go to Models to enable them.`
+        : `✓ Already up to date — all ${data.fetched} available models are registered. Go to Models to enable them.`;
+    setStatus((s) => ({ ...s, [id]: msg }));
+    load();
   }
 
   async function addManualModel(id: string) {
@@ -125,16 +145,31 @@ export default function EndpointsPage() {
         {!loading && endpoints.length === 0 && (
           <p className="text-sm text-white/40">No endpoints yet — add your first one above.</p>
         )}
-        {endpoints.map((ep) => (
+        {endpoints.map((ep) => {
+          const counts = modelCounts[ep.id];
+          return (
           <Card key={ep.id}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="font-medium text-white">
-                  {ep.name} <span className="ml-1 font-mono text-xs text-white/40">{ep.slug}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-white">{ep.name}</span>
+                  <span className="font-mono text-xs text-white/40">{ep.slug}</span>
+                  {counts ? (
+                    <Badge tone={counts.enabled > 0 ? "green" : "default"}>
+                      {counts.total} model{counts.total === 1 ? "" : "s"} · {counts.enabled} enabled
+                    </Badge>
+                  ) : (
+                    <Badge>0 models synced</Badge>
+                  )}
                 </div>
                 <div className="mt-1 font-mono text-xs text-white/40">{ep.baseUrl}</div>
               </div>
               <div className="flex gap-2">
+                {counts && counts.total > 0 && (
+                  <Link href="/models">
+                    <Button variant="ghost">View models</Button>
+                  </Link>
+                )}
                 <Button variant="ghost" onClick={() => syncModels(ep.id)}>
                   Sync models
                 </Button>
@@ -156,7 +191,8 @@ export default function EndpointsPage() {
               </Button>
             </div>
           </Card>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
