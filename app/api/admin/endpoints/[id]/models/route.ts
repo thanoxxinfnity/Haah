@@ -14,6 +14,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!modelId) {
     return NextResponse.json({ error: "modelId is required" }, { status: 400 });
   }
-  const added = await syncModelsForEndpoint(endpoint.id, [modelId]);
-  return NextResponse.json({ added });
+  const addedModels = await syncModelsForEndpoint(endpoint.id, [modelId]);
+  return NextResponse.json({ added: addedModels.length, addedModels });
 }

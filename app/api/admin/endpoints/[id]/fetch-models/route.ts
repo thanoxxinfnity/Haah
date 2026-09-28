@@ -46,6 +46,6 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ error: "No models found in provider response." }, { status: 502 });
   }
 
-  const added = await syncModelsForEndpoint(endpoint.id, modelIds);
-  return NextResponse.json({ fetched: modelIds.length, added });
+  const addedModels = await syncModelsForEndpoint(endpoint.id, modelIds);
+  return NextResponse.json({ fetched: modelIds.length, added: addedModels.length, addedModels });
 }

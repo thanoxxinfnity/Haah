@@ -11,6 +11,6 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const name = typeof body?.name === "string" ? body.name : "";
-  const { id, plaintext } = await createKey(name);
-  return NextResponse.json({ id, key: plaintext }, { status: 201 });
+  const { key, plaintext } = await createKey(name);
+  return NextResponse.json({ key, plaintext }, { status: 201 });
 }

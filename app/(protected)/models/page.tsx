@@ -10,6 +10,8 @@ type Model = {
   enabled: boolean;
   endpointName: string;
   endpointSlug: string;
+  requestCount: number;
+  lastUsedAt: number | null;
 };
 
 export default function ModelsPage() {
@@ -18,15 +20,13 @@ export default function ModelsPage() {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<Record<string, boolean>>({});
 
-  async function load() {
-    setLoading(true);
-    const res = await fetch("/api/admin/models").then((r) => r.json());
-    setModels(res.models ?? []);
-    setLoading(false);
-  }
-
   useEffect(() => {
-    load();
+    (async () => {
+      setLoading(true);
+      const res = await fetch("/api/admin/models").then((r) => r.json());
+      setModels(res.models ?? []);
+      setLoading(false);
+    })();
   }, []);
 
   const filtered = useMemo(
@@ -46,12 +46,13 @@ export default function ModelsPage() {
 
   async function toggle(id: string, enabled: boolean) {
     setBusy((b) => ({ ...b, [id]: true }));
+    // Optimistic: flip local state immediately, don't wait on a re-read.
+    setModels((prev) => prev.map((m) => (m.id === id ? { ...m, enabled } : m)));
     await fetch(`/api/admin/models/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled }),
     });
-    setModels((prev) => prev.map((m) => (m.id === id ? { ...m, enabled } : m)));
     setBusy((b) => ({ ...b, [id]: false }));
   }
 
@@ -61,30 +62,34 @@ export default function ModelsPage() {
   }
 
   async function bulk(enabled: boolean, endpointId?: string) {
+    // Optimistic: apply to local state right away instead of waiting on a
+    // re-read of the store, which can lag right after a write.
+    setModels((prev) =>
+      prev.map((m) => (!endpointId || m.endpointId === endpointId ? { ...m, enabled } : m))
+    );
     await fetch("/api/admin/models/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled, ids: "all", endpointId }),
     });
-    load();
   }
 
   const totalEnabled = models.filter((m) => m.enabled).length;
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Models</h1>
+          <h1 className="text-xl font-semibold text-white sm:text-2xl">Models</h1>
           <p className="mt-1 text-sm text-white/40">
             {totalEnabled} of {models.length} models are live on your gateway.
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => bulk(true)}>
+          <Button variant="ghost" onClick={() => bulk(true)} className="flex-1 sm:flex-none">
             Add all
           </Button>
-          <Button variant="ghost" onClick={() => bulk(false)}>
+          <Button variant="ghost" onClick={() => bulk(false)} className="flex-1 sm:flex-none">
             Remove all
           </Button>
         </div>
@@ -94,7 +99,7 @@ export default function ModelsPage() {
         placeholder="Search models..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        className="mt-6 max-w-sm"
+        className="mt-6 sm:max-w-sm"
       />
 
       <div className="mt-6 flex flex-col gap-6">
@@ -105,8 +110,8 @@ export default function ModelsPage() {
           </p>
         )}
         {grouped.map(([endpointId, list]) => (
-          <div key={endpointId} className="rounded-2xl border border-line bg-panel p-6">
-            <div className="flex items-center justify-between">
+          <div key={endpointId} className="rounded-2xl border border-line bg-panel p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="font-medium text-white">{list[0].endpointName}</div>
               <div className="flex gap-2">
                 <Button variant="ghost" onClick={() => bulk(true, endpointId)}>
@@ -119,21 +124,22 @@ export default function ModelsPage() {
             </div>
             <div className="mt-4 flex flex-col divide-y divide-line">
               {list.map((m) => (
-                <div key={m.id} className="flex items-center justify-between gap-3 py-2.5">
-                  <div className="flex items-center gap-3">
+                <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                  <div className="flex min-w-0 items-center gap-3">
                     <input
                       type="checkbox"
                       checked={m.enabled}
                       disabled={busy[m.id]}
                       onChange={(e) => toggle(m.id, e.target.checked)}
-                      className="h-4 w-4 accent-accent"
+                      className="h-4 w-4 shrink-0 accent-accent"
                     />
-                    <span className="font-mono text-sm text-white/80">{m.id}</span>
+                    <span className="break-all font-mono text-sm text-white/80">{m.id}</span>
                     {m.enabled && <Badge tone="green">live</Badge>}
+                    {m.requestCount > 0 && <Badge>{m.requestCount} calls</Badge>}
                   </div>
                   <button
                     onClick={() => remove(m.id)}
-                    className="text-xs text-white/30 hover:text-red-400"
+                    className="shrink-0 text-xs text-white/30 hover:text-red-400"
                     title="Remove from registry"
                   >
                     remove

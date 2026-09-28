@@ -12,6 +12,6 @@ export async function POST(req: NextRequest) {
   const ids: string[] | "all" = Array.isArray(body?.ids) ? body.ids : "all";
   const endpointId: string | undefined = typeof body?.endpointId === "string" ? body.endpointId : undefined;
 
-  const count = await bulkSetEnabled(ids, enabled, endpointId);
-  return NextResponse.json({ updated: count });
+  const changedIds = await bulkSetEnabled(ids, enabled, endpointId);
+  return NextResponse.json({ updated: changedIds.length, changedIds });
 }

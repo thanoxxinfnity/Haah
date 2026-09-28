@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveEnabledModel, verifyPlatformKey } from "@/lib/store";
+import { recordUsage, resolveEnabledModel, resolvePlatformKey } from "@/lib/store";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -16,8 +16,8 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest, { params }: { params: { path: string[] } }) {
   const auth = req.headers.get("authorization") ?? "";
   const key = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  const authorized = await verifyPlatformKey(key);
-  if (!authorized) {
+  const platformKey = await resolvePlatformKey(key);
+  if (!platformKey) {
     return NextResponse.json({ error: { message: "Invalid API key" } }, { status: 401, headers: CORS_HEADERS });
   }
 
@@ -56,6 +56,12 @@ export async function POST(req: NextRequest, { params }: { params: { path: strin
       { error: { message: `Upstream request failed: ${(err as Error).message}` } },
       { status: 502, headers: CORS_HEADERS }
     );
+  }
+
+  if (upstream.ok) {
+    // Awaited (not fire-and-forget) because serverless functions can be
+    // frozen the instant the response is returned, killing detached work.
+    await recordUsage(platformKey.id, model.id).catch(() => {});
   }
 
   const headers = new Headers(CORS_HEADERS);

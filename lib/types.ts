@@ -13,6 +13,8 @@ export type ModelEntry = {
   modelId: string; // raw provider-side model id
   enabled: boolean;
   addedAt: number;
+  requestCount: number;
+  lastUsedAt: number | null;
 };
 
 export type PlatformKey = {
@@ -21,6 +23,8 @@ export type PlatformKey = {
   hash: string;
   prefix: string;
   createdAt: number;
+  requestCount: number;
+  lastUsedAt: number | null;
 };
 
 export type GatewayConfig = {

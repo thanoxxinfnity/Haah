@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listPublicModels, verifyPlatformKey } from "@/lib/store";
+import { listPublicModels, resolvePlatformKey } from "@/lib/store";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -16,7 +16,7 @@ export async function OPTIONS() {
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
   const key = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  const authorized = await verifyPlatformKey(key);
+  const authorized = await resolvePlatformKey(key);
   if (!authorized) {
     return NextResponse.json({ error: { message: "Invalid API key" } }, { status: 401, headers: CORS_HEADERS });
   }

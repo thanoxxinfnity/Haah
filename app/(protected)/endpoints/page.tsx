@@ -24,27 +24,32 @@ export default function EndpointsPage() {
   const [status, setStatus] = useState<Record<string, string>>({});
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
 
-  async function load() {
-    setLoading(true);
-    const [epRes, modRes] = await Promise.all([
-      fetch("/api/admin/endpoints").then((r) => r.json()),
-      fetch("/api/admin/models").then((r) => r.json()),
-    ]);
-    setEndpoints(epRes.endpoints ?? []);
-    const counts: Record<string, ModelCount> = {};
-    for (const m of modRes.models ?? []) {
-      const c = counts[m.endpointId] ?? { total: 0, enabled: 0 };
-      c.total += 1;
-      if (m.enabled) c.enabled += 1;
-      counts[m.endpointId] = c;
-    }
-    setModelCounts(counts);
-    setLoading(false);
-  }
-
   useEffect(() => {
-    load();
+    (async () => {
+      setLoading(true);
+      const [epRes, modRes] = await Promise.all([
+        fetch("/api/admin/endpoints").then((r) => r.json()),
+        fetch("/api/admin/models").then((r) => r.json()),
+      ]);
+      setEndpoints(epRes.endpoints ?? []);
+      const counts: Record<string, ModelCount> = {};
+      for (const m of modRes.models ?? []) {
+        const c = counts[m.endpointId] ?? { total: 0, enabled: 0 };
+        c.total += 1;
+        if (m.enabled) c.enabled += 1;
+        counts[m.endpointId] = c;
+      }
+      setModelCounts(counts);
+      setLoading(false);
+    })();
   }, []);
+
+  function bumpCount(endpointId: string, byTotal: number) {
+    setModelCounts((prev) => {
+      const c = prev[endpointId] ?? { total: 0, enabled: 0 };
+      return { ...prev, [endpointId]: { ...c, total: c.total + byTotal } };
+    });
+  }
 
   async function addEndpoint(e: React.FormEvent) {
     e.preventDefault();
@@ -55,20 +60,26 @@ export default function EndpointsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
+    const data = await res.json().catch(() => ({}));
     setSubmitting(false);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       setError(data.error ?? "Failed to add endpoint");
       return;
     }
+    // Use the server's response directly — the store can take a moment to
+    // become consistent, so re-fetching right away can miss what we just wrote.
+    setEndpoints((prev) => [data.endpoint, ...prev]);
     setForm({ name: "", baseUrl: "", apiKey: "" });
-    load();
   }
 
   async function deleteEndpoint(id: string) {
     if (!confirm("Remove this endpoint and every model registered under it?")) return;
+    setEndpoints((prev) => prev.filter((e) => e.id !== id));
+    setModelCounts((prev) => {
+      const { [id]: _, ...rest } = prev;
+      return rest;
+    });
     await fetch(`/api/admin/endpoints/${id}`, { method: "DELETE" });
-    load();
   }
 
   async function syncModels(id: string) {
@@ -79,12 +90,12 @@ export default function EndpointsPage() {
       setStatus((s) => ({ ...s, [id]: data.error ?? "Sync failed" }));
       return;
     }
+    if (data.added > 0) bumpCount(id, data.added);
     const msg =
       data.added > 0
         ? `✓ Synced — ${data.added} new model${data.added === 1 ? "" : "s"} added (${data.fetched} available total). Go to Models to enable them.`
         : `✓ Already up to date — all ${data.fetched} available models are registered. Go to Models to enable them.`;
     setStatus((s) => ({ ...s, [id]: msg }));
-    load();
   }
 
   async function addManualModel(id: string) {
@@ -95,15 +106,22 @@ export default function EndpointsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ modelId }),
     });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
+      if (data.added > 0) bumpCount(id, data.added);
       setManualModel((s) => ({ ...s, [id]: "" }));
-      setStatus((s) => ({ ...s, [id]: `Added "${modelId}".` }));
+      setStatus((s) => ({
+        ...s,
+        [id]: data.added > 0 ? `✓ Added "${modelId}".` : `"${modelId}" was already registered.`,
+      }));
+    } else {
+      setStatus((s) => ({ ...s, [id]: data.error ?? "Failed to add model" }));
     }
   }
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-white">Endpoints</h1>
+      <h1 className="text-xl font-semibold text-white sm:text-2xl">Endpoints</h1>
       <p className="mt-1 text-sm text-white/40">
         Add every provider you have a key for — OpenAI-compatible base URL + API key. Works with OpenAI, Groq,
         Together, Fireworks, Mistral, DeepSeek, OpenRouter itself, local Ollama, or your own server.
@@ -132,10 +150,10 @@ export default function EndpointsPage() {
             required
           />
           <div className="sm:col-span-4">
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting} className="w-full sm:w-auto">
               {submitting ? "Adding..." : "+ Add endpoint"}
             </Button>
-            {error && <span className="ml-3 text-sm text-red-400">{error}</span>}
+            {error && <p className="mt-2 text-sm text-red-400 sm:ml-3 sm:mt-0 sm:inline">{error}</p>}
           </div>
         </form>
       </Card>
@@ -148,49 +166,49 @@ export default function EndpointsPage() {
         {endpoints.map((ep) => {
           const counts = modelCounts[ep.id];
           return (
-          <Card key={ep.id}>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-white">{ep.name}</span>
-                  <span className="font-mono text-xs text-white/40">{ep.slug}</span>
-                  {counts ? (
-                    <Badge tone={counts.enabled > 0 ? "green" : "default"}>
-                      {counts.total} model{counts.total === 1 ? "" : "s"} · {counts.enabled} enabled
-                    </Badge>
-                  ) : (
-                    <Badge>0 models synced</Badge>
-                  )}
+            <Card key={ep.id}>
+              <div className="flex flex-col gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-white">{ep.name}</span>
+                    <span className="font-mono text-xs text-white/40">{ep.slug}</span>
+                    {counts && counts.total > 0 ? (
+                      <Badge tone={counts.enabled > 0 ? "green" : "default"}>
+                        {counts.total} model{counts.total === 1 ? "" : "s"} · {counts.enabled} enabled
+                      </Badge>
+                    ) : (
+                      <Badge>0 models synced</Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 break-all font-mono text-xs text-white/40">{ep.baseUrl}</div>
                 </div>
-                <div className="mt-1 font-mono text-xs text-white/40">{ep.baseUrl}</div>
+                <div className="flex flex-wrap gap-2">
+                  {counts && counts.total > 0 && (
+                    <Link href="/models">
+                      <Button variant="ghost">View models</Button>
+                    </Link>
+                  )}
+                  <Button variant="ghost" onClick={() => syncModels(ep.id)}>
+                    Sync models
+                  </Button>
+                  <Button variant="danger" onClick={() => deleteEndpoint(ep.id)}>
+                    Delete
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                {counts && counts.total > 0 && (
-                  <Link href="/models">
-                    <Button variant="ghost">View models</Button>
-                  </Link>
-                )}
-                <Button variant="ghost" onClick={() => syncModels(ep.id)}>
-                  Sync models
-                </Button>
-                <Button variant="danger" onClick={() => deleteEndpoint(ep.id)}>
-                  Delete
+              {status[ep.id] && <p className="mt-3 text-xs text-white/50">{status[ep.id]}</p>}
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <Input
+                  placeholder="Manually add a model id (if /models isn't supported)"
+                  value={manualModel[ep.id] ?? ""}
+                  onChange={(e) => setManualModel((s) => ({ ...s, [ep.id]: e.target.value }))}
+                  className="sm:max-w-sm"
+                />
+                <Button variant="ghost" onClick={() => addManualModel(ep.id)}>
+                  Add
                 </Button>
               </div>
-            </div>
-            {status[ep.id] && <p className="mt-3 text-xs text-white/50">{status[ep.id]}</p>}
-            <div className="mt-3 flex gap-2">
-              <Input
-                placeholder="Manually add a model id (if /models isn't supported)"
-                value={manualModel[ep.id] ?? ""}
-                onChange={(e) => setManualModel((s) => ({ ...s, [ep.id]: e.target.value }))}
-                className="max-w-sm"
-              />
-              <Button variant="ghost" onClick={() => addManualModel(ep.id)}>
-                Add
-              </Button>
-            </div>
-          </Card>
+            </Card>
           );
         })}
       </div>
